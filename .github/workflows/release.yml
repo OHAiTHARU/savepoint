@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Or run it from the Actions tab: it creates the v<version> tag on the selected commit.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 0.1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -10,11 +16,19 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Version
+        shell: pwsh
+        run: |
+          $v = "$env:VERSION".TrimStart("v")
+          "VERSION_NUMBER=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RELEASE_TAG=v$v" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Test
         run: |
           dotnet test tests/Savepoint.Core.Tests -c Release
@@ -22,20 +36,22 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = $env:VERSION_NUMBER
           dotnet publish src/Savepoint.Agent -c Release -r win-x64 --self-contained `
             -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true `
             -p:DebugType=none -p:Version=$version -o publish
       - name: Package Playnite extension
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = $env:VERSION_NUMBER
           dotnet build src/Savepoint.Playnite -c Release -p:Version=$version -p:DebugType=none -o plugin
           (Get-Content plugin/extension.yaml) -replace '^Version: .*', "Version: $version" | Set-Content plugin/extension.yaml
           Compress-Archive -Path plugin/* -DestinationPath publish/Savepoint.Playnite.zip
           Move-Item publish/Savepoint.Playnite.zip publish/Savepoint.Playnite.pext
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: |
             publish/Savepoint.exe
             publish/Savepoint.Playnite.pext
