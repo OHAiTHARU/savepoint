@@ -14,6 +14,7 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet test tests/Savepoint.Core.Tests -c Release
+      - run: dotnet test tests/Savepoint.Playnite.Tests -c Release
 
   windows-build:
     runs-on: windows-latest
@@ -24,3 +25,4 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet build Savepoint.sln -c Release
       - run: dotnet test tests/Savepoint.Core.Tests -c Release --no-build
+      - run: dotnet test tests/Savepoint.Playnite.Tests -c Release --no-build

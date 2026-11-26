@@ -14,6 +14,8 @@ namespace Savepoint.Agent.Services;
 /// <code>
 /// {"cmd":"pull","game_id":"…"}                  → {"ok":true,"outcome":"restored","message":"…"}
 /// {"cmd":"push","game_id":"…","type":"session"} → {"ok":true,"outcome":"pushed",…}
+/// {"cmd":"restore","game_id":"…"}               → restore the server head now (like tray "Restore latest")
+/// {"cmd":"resolve","game_id":"…","choice":"keep_local"|"take_server"} → resolve a pending conflict
 /// {"cmd":"status","game_id":"…"}                → {"ok":true,"status":"idle","text":"…","games":[…]}
 /// {"cmd":"list_games"}                          → {"ok":true,"games":[{"id","name","exe_names","sync_mode"}]}
 /// </code>
@@ -119,6 +121,27 @@ public sealed class IpcServer : IDisposable
                     return FromResult(await _agent.PushAsync(gameId, type));
                 }
 
+                case "restore":
+                {
+                    var game = FindGame(gameId);
+                    if (game is null) return Error("unknown_game", "Unknown game");
+                    return FromResult(await _agent.RestoreLatestAsync(game));
+                }
+
+                case "resolve":
+                {
+                    var game = FindGame(gameId);
+                    if (game is null) return Error("unknown_game", "Unknown game");
+                    var choice = req["choice"]?.GetValue<string>() switch
+                    {
+                        "keep_local" => (ConflictChoice?)ConflictChoice.KeepLocal,
+                        "take_server" => ConflictChoice.TakeServer,
+                        _ => null,
+                    };
+                    if (choice is null) return Error("bad_request", "choice must be keep_local or take_server");
+                    return FromResult(await _agent.ResolveConflictAsync(game, choice.Value));
+                }
+
                 case "status":
                 {
                     var games = _agent.Games.Where(g => gameId is null || g.Id == gameId).Select(g =>
@@ -163,6 +186,8 @@ public sealed class IpcServer : IDisposable
             return Error("internal", ex.Message);
         }
     }
+
+    private Game? FindGame(string? gameId) => gameId is null ? null : _agent.Games.FirstOrDefault(g => g.Id == gameId);
 
     private static JsonObject FromResult(SyncResult r) => new()
     {

@@ -1,0 +1,10 @@
+Id: SavepointPlaynite_5f3c2b8e-6a51-4c8d-9b8e-2f1d7c4a9e10
+Name: Savepoint
+Author: OHAiTHARU
+Version: 0.1.0
+Module: SavepointPlaynite.dll
+Type: GenericPlugin
+Icon: icon.png
+Links:
+  - Name: Source
+    Url: https://github.com/OHAiTHARU/savepoint

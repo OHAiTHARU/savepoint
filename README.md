@@ -9,7 +9,8 @@ Tray app that syncs and backs up game saves through a
 | `src/Savepoint.Core` | Cross-platform library: API client, path templates, exclude globs, scanning, local state (SQLite), sync engine |
 | `src/Savepoint.Agent` | Windows tray app (WinForms): exe monitor, file watcher, head polling, toasts, dialogs, IPC pipe |
 | `tests/Savepoint.Core.Tests` | xUnit tests, including the sync decision table and two-machine scenarios |
-| `Savepoint.Playnite` | Phase 6, not started |
+| `src/Savepoint.Playnite` | Playnite 10 extension: links games and pulls before launch, pushes after exit |
+| `tests/Savepoint.Playnite.Tests` | Tests for the plugin's pipe client, launch decisions and auto-linking |
 
 ## Install
 
@@ -56,6 +57,22 @@ All under `%LOCALAPPDATA%\Savepoint\`:
 | `snapshots\<game>\*.zip` | Pre-restore zips |
 | `logs\agent-YYYYMMDD.log` | Logs, kept 14 days |
 
+## Playnite extension
+
+1. Download `Savepoint.Playnite.pext` from the same release and open it. Playnite asks to install it.
+2. Link games to Savepoint games. Any of these works:
+   - **Right-click a game → Savepoint → Link to Savepoint game.** The suggested match is listed first.
+   - **Main menu → Extensions → Savepoint → Auto-link library.** This links every unambiguous match, by exe name, then by name.
+   - **Add-ons → Extension settings → Savepoint.** This page lists the links; you can change each one with a dropdown or remove it.
+3. Play from Playnite. Before a linked game starts, a progress dialog shows while the agent pulls the latest save (up to 45 seconds by default):
+   - **In sync, or restored:** the game starts. A restore also shows a notification.
+   - **Manual-mode games with a newer save on the server:** you're asked whether to restore it first.
+   - **Conflicts:** you're asked which save to play with, or you can choose to decide later.
+   - **The agent isn't running, or the server is unreachable:** the game still starts, and a notification warns you. Settings can make it ask you instead.
+4. After the game exits, the session is backed up.
+
+The game's right-click menu also has **Back up saves now**, **Restore latest save from server** and **Unlink**.
+
 ### IPC
 
 The agent serves `\\.\pipe\savepoint`, using JSON lines, one request per line:
@@ -63,6 +80,8 @@ The agent serves `\\.\pipe\savepoint`, using JSON lines, one request per line:
 ```json
 {"cmd":"pull","game_id":"…"}
 {"cmd":"push","game_id":"…","type":"session"}
+{"cmd":"restore","game_id":"…"}
+{"cmd":"resolve","game_id":"…","choice":"keep_local"}
 {"cmd":"status"}
 {"cmd":"list_games"}
 ```
@@ -71,10 +90,11 @@ The agent serves `\\.\pipe\savepoint`, using JSON lines, one request per line:
 
 ## Develop
 
-Requires the .NET 8 SDK. Core and its tests run on any OS. The tray app builds anywhere (`EnableWindowsTargeting`) but runs only on Windows.
+Requires the .NET 8 SDK. Core and its tests run on any OS. The tray app and the Playnite extension build anywhere: the tray app uses `EnableWindowsTargeting`, and the extension uses the .NET Framework reference-assemblies package. Both run only on Windows.
 
 ```bash
 dotnet test tests/Savepoint.Core.Tests
+dotnet test tests/Savepoint.Playnite.Tests
 dotnet build Savepoint.sln
 ```
 
@@ -92,4 +112,4 @@ SAVEPOINT_E2E_URL=http://localhost:8080 SAVEPOINT_E2E_KEY_A=sp_… SAVEPOINT_E2E
 
 ### Release
 
-Push a `v*` tag. The release workflow runs the tests, publishes a single compressed `Savepoint.exe` (win-x64, self-contained), and attaches it to a GitHub release.
+Push a `v*` tag. The release workflow runs the tests, publishes a single compressed `Savepoint.exe` (win-x64, self-contained), packages `Savepoint.Playnite.pext`, and attaches both to a GitHub release.

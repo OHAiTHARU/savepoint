@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Playnite 10 extensions run on .NET Framework 4.6.2. -->
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Savepoint.Playnite</RootNamespace>
+    <AssemblyName>SavepointPlaynite</AssemblyName>
+    <Version>0.1.0</Version>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Playnite supplies Playnite.SDK.dll at runtime; don't ship it. -->
+    <PackageReference Include="PlayniteSDK" Version="6.19.0" ExcludeAssets="runtime" />
+    <!-- Lets this project build without Windows or the .NET Framework targeting pack. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="extension.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
