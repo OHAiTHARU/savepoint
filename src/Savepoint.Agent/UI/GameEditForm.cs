@@ -40,6 +40,7 @@ public sealed class GameEditForm : Form
     private readonly TextBox _excludes = new() { Multiline = true, Width = 320, Height = 80, ScrollBars = ScrollBars.Vertical, PlaceholderText = "**/*.tmp" };
     private readonly RadioButton _auto = new() { Text = "Auto: restore and resolve conflicts automatically (newer wins)", AutoSize = true };
     private readonly RadioButton _manual = new() { Text = "Manual: ask me first", AutoSize = true };
+    private readonly CheckBox _syncHere = new() { Text = "Sync this game on this PC", AutoSize = true, Checked = true };
     private readonly Button _save = new() { Text = "Save", AutoSize = true };
 
     public GameEditForm(AgentService agent, Game? game)
@@ -72,6 +73,7 @@ public sealed class GameEditForm : Form
             _exes.Text = string.Join(Environment.NewLine, game.ExeNames);
             _excludes.Text = string.Join(Environment.NewLine, game.Excludes);
             (game.IsAuto ? _auto : _manual).Checked = true;
+            _syncHere.Checked = game.SyncEnabled;
         }
         else
         {
@@ -105,6 +107,10 @@ public sealed class GameEditForm : Form
         var modes = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0) };
         modes.Controls.AddRange(new Control[] { _auto, _manual });
         layout.Controls.Add(modes);
+        layout.Controls.Add(Caption("This PC"));
+        layout.Controls.Add(_syncHere);
+        layout.Controls.Add(Hint("Untick to keep this game off this PC: it won't be backed up or restored here. " +
+                                 "Choose machines for all PCs in the web UI's game settings."));
 
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(0, 12, 0, 0) };
@@ -242,7 +248,7 @@ public sealed class GameEditForm : Form
         UseWaitCursor = true;
         try
         {
-            await _agent.SaveGameAsync(_game?.Id, input, overrides);
+            await _agent.SaveGameAsync(_game?.Id, input, overrides, _syncHere.Checked);
             DialogResult = DialogResult.OK;
             Close();
         }

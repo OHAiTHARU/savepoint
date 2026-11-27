@@ -98,7 +98,18 @@ public sealed class TrayContext : ApplicationContext
         {
             _menu.Items.Add(new ToolStripMenuItem("No games yet") { Enabled = false });
         }
-        foreach (var game in games)
+        foreach (var game in games.Where(g => !g.SyncEnabled))
+        {
+            // Listed but inert: syncing is off for this game on this PC.
+            var off = new ToolStripMenuItem(game.Name + "  (not on this PC)") { ForeColor = SystemColors.GrayText };
+            off.DropDownItems.Add(new ToolStripMenuItem("Not synced on this PC") { Enabled = false });
+            off.DropDownItems.Add("Sync on this PC", null, (_, _) => _ = ToggleSync(game, true));
+            off.DropDownItems.Add("Open in web UI", null, (_, _) => OpenWeb(game.Id));
+            off.DropDownItems.Add(new ToolStripSeparator());
+            off.DropDownItems.Add("Edit game…", null, (_, _) => OpenGameEditor(game));
+            _menu.Items.Add(off);
+        }
+        foreach (var game in games.Where(g => g.SyncEnabled))
         {
             var conflict = _agent.ConflictFor(game.Id);
             var running = _agent.IsRunning(game);
@@ -120,6 +131,14 @@ public sealed class TrayContext : ApplicationContext
             item.DropDownItems.Add("Open save folder", null, (_, _) => OpenSaveFolder(game));
             item.DropDownItems.Add(new ToolStripSeparator());
             item.DropDownItems.Add("Edit game…", null, (_, _) => OpenGameEditor(game));
+            item.DropDownItems.Add("Stop syncing on this PC", null, (_, _) =>
+            {
+                var answer = MessageBox.Show(
+                    $"Stop syncing {game.Name} on this PC?\n\nThis PC won't back it up or restore it any more. " +
+                    "Its saves here and its versions on the server are left as they are.",
+                    "Savepoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                if (answer == DialogResult.OK) _ = ToggleSync(game, false);
+            });
             _menu.Items.Add(item);
         }
 
@@ -133,6 +152,20 @@ public sealed class TrayContext : ApplicationContext
         _menu.Items.Add("Open log folder", null, (_, _) => OpenPath(_agent.LogDirectory));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add("Quit", null, (_, _) => Quit());
+    }
+
+    private async Task ToggleSync(Game game, bool enabled)
+    {
+        try
+        {
+            await _agent.SetSyncEnabledAsync(game, enabled);
+            OnUi(() => _tray.ShowBalloonTip(4000, game.Name,
+                enabled ? "Now syncing on this PC." : "No longer syncing on this PC.", ToolTipIcon.Info));
+        }
+        catch (Exception ex) when (ex is ApiException or ServerUnreachableException or InvalidOperationException)
+        {
+            OnUi(() => _tray.ShowBalloonTip(5000, game.Name, "Couldn't change sync: " + ex.Message, ToolTipIcon.Error));
+        }
     }
 
     private void ConfirmRestore(Game game)

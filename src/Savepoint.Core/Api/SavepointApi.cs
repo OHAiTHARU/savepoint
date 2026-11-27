@@ -15,6 +15,8 @@ public interface ISavepointApi
     Task<Game> CreateGameAsync(GameInput input, CancellationToken ct = default);
     Task<Game> UpdateGameAsync(string gameId, GameInput input, CancellationToken ct = default);
     Task<Game> SetRootOverrideAsync(string gameId, string alias, string? pathTemplate, CancellationToken ct = default);
+    /// <summary>Turn syncing a game on or off for this machine.</summary>
+    Task<Game> SetSyncEnabledAsync(string gameId, bool enabled, CancellationToken ct = default);
     Task<IReadOnlyDictionary<string, HeadInfo>> GetHeadsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<string>> CheckBlobsAsync(IEnumerable<string> hashes, CancellationToken ct = default);
     Task UploadBlobAsync(string hash, string filePath, CancellationToken ct = default);
@@ -96,6 +98,9 @@ public sealed class SavepointApi : ISavepointApi, IDisposable
         => SendJsonAsync<Game>(HttpMethod.Put,
             $"games/{Uri.EscapeDataString(gameId)}/roots/{Uri.EscapeDataString(alias)}/override",
             new { path_template = string.IsNullOrWhiteSpace(pathTemplate) ? null : pathTemplate }, ct);
+
+    public Task<Game> SetSyncEnabledAsync(string gameId, bool enabled, CancellationToken ct = default)
+        => SendJsonAsync<Game>(HttpMethod.Put, $"games/{Uri.EscapeDataString(gameId)}/sync", new { enabled }, ct);
 
     // ------------------------------------------------------------------ heads
 

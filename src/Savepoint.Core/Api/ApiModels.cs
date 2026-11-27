@@ -60,6 +60,13 @@ public sealed record Game
     public string? HeadVersionId { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
 
+    /// <summary>Machine ids this game syncs on, or null for all machines.</summary>
+    public List<string>? SyncMachines { get; init; }
+
+    /// <summary>Whether this game syncs on the calling machine. Defaults to true for
+    /// servers that predate per-machine selection.</summary>
+    public bool SyncEnabled { get; init; } = true;
+
     [JsonIgnore]
     public bool IsAuto => SyncMode == SyncModes.Auto;
 }

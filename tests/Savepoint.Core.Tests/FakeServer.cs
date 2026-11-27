@@ -148,6 +148,7 @@ public sealed class FakeApi : ISavepointApi
     public Task<Game> CreateGameAsync(GameInput input, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<Game> UpdateGameAsync(string gameId, GameInput input, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<Game> SetRootOverrideAsync(string gameId, string alias, string? pathTemplate, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<Game> SetSyncEnabledAsync(string gameId, bool enabled, CancellationToken ct = default) => throw new NotSupportedException();
 
     public Task<IReadOnlyDictionary<string, HeadInfo>> GetHeadsAsync(CancellationToken ct = default)
     {

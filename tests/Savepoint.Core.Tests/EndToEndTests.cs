@@ -69,6 +69,18 @@ public class EndToEndTests
         Assert.Equal(SyncOutcome.ConflictResolvedServer, conflict.Outcome);
         Assert.Equal("pc wins", laptop.Read("ER0000.sl2"));
 
+        // Turn the game off on the laptop: the server reports it and refuses its uploads.
+        var off = await apiB.SetSyncEnabledAsync(game.Id, false);
+        Assert.False(off.SyncEnabled);
+        Assert.Contains(meA.Id, off.SyncMachines!);
+        Assert.False((await apiB.GetGamesAsync()).Single(g => g.Id == game.Id).SyncEnabled);
+        Assert.True((await apiA.GetGamesAsync()).Single(g => g.Id == game.Id).SyncEnabled);
+        laptop.Write("ER0000.sl2", "laptop after opt-out", t0.AddHours(4));
+        var refused = await laptop.Engine.PushAsync(off, VersionTypes.Manual);
+        Assert.Equal(SyncOutcome.Failed, refused.Outcome);
+        Assert.Contains("sync on this machine", refused.Message);
+        Assert.True((await apiB.SetSyncEnabledAsync(game.Id, true)).SyncEnabled);
+
         // Second heads poll with nothing changed is served from the ETag cache.
         var heads1 = await apiB.GetHeadsAsync();
         var heads2 = await apiB.GetHeadsAsync();

@@ -49,14 +49,18 @@ public sealed class AgentService : IDisposable
         Config = state.LoadConfig();
         _games = state.LoadGames();
         _exes = new ExeMonitor(logs.CreateLogger("ExeMonitor"), TimeSpan.FromSeconds(5));
-        _exes.SetGames(_games);
+        _exes.SetGames(SyncedGames);
         _exes.GameExited += (_, g) => _ = OnGameExitedAsync(g);
         _exes.GameStarted += (_, g) => RaiseStatus();
         _watchers = new WatcherManager(logs.CreateLogger("Watcher"));
     }
 
     public AgentConfig Config { get; private set; }
+    /// <summary>Every game on the server, including ones not synced on this PC.</summary>
     public IReadOnlyList<Game> Games { get { lock (_lock) return _games; } }
+
+    /// <summary>Games that sync on this PC: the only ones triggers act on.</summary>
+    public IReadOnlyList<Game> SyncedGames { get { lock (_lock) return _games.Where(g => g.SyncEnabled).ToList(); } }
     public string? MachineName => Config.MachineName;
     public string ServerUrl => Config.ServerUrl;
     public string LogDirectory => Path.Combine(_dataDir, "logs");
@@ -157,7 +161,7 @@ public sealed class AgentService : IDisposable
         await RefreshGamesAsync(force: true);
         if (Config.Paused) return;
         // Pull check for every game (also pushes changes made while the agent wasn't running).
-        foreach (var g in Games) await RunAsync(e => e.PullCheckAsync(g, _shutdown.Token));
+        foreach (var g in SyncedGames) await RunAsync(e => e.PullCheckAsync(g, _shutdown.Token));
         await FlushPendingAsync();
         await PollHeadsAsync();
     }
@@ -251,7 +255,7 @@ public sealed class AgentService : IDisposable
     {
         lock (_lock) _games = games.OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         _state.SaveGames(games);
-        _exes.SetGames(games);
+        _exes.SetGames(SyncedGames);
         RebuildWatchers();
         GamesChanged?.Invoke(this, EventArgs.Empty);
         RaiseStatus();
@@ -262,7 +266,7 @@ public sealed class AgentService : IDisposable
         var engine = _engine;
         if (engine is null) return;
         var resolved = new List<(Game, IReadOnlyDictionary<string, ResolvedRoot>)>();
-        foreach (var g in Games)
+        foreach (var g in SyncedGames)
         {
             try { resolved.Add((g, engine.ResolveRoots(g))); }
             catch (PathTemplateException ex) { _log.LogWarning("{Game}: {Message}", g.Name, ex.Message); }
@@ -271,7 +275,8 @@ public sealed class AgentService : IDisposable
     }
 
     /// <summary>Create or update a game from the Add/Edit dialog, plus this machine's path overrides.</summary>
-    public async Task<Game> SaveGameAsync(string? gameId, GameInput input, IReadOnlyDictionary<string, string?> overrides)
+    public async Task<Game> SaveGameAsync(string? gameId, GameInput input, IReadOnlyDictionary<string, string?> overrides,
+        bool syncOnThisPc = true)
     {
         var api = _api ?? throw new InvalidOperationException("Not connected");
         var game = gameId is null
@@ -284,9 +289,10 @@ public sealed class AgentService : IDisposable
             var current = root.ResolvedTemplate == root.PathTemplate ? null : root.ResolvedTemplate;
             if (wanted != current) game = await api.SetRootOverrideAsync(game.Id, root.Alias, wanted);
         }
+        if (game.SyncEnabled != syncOnThisPc) game = await api.SetSyncEnabledAsync(game.Id, syncOnThisPc);
         await RefreshGamesAsync(force: true);
         // A new game may already have saves here (or on the server).
-        _ = Task.Run(() => RunAsync(e => e.PullCheckAsync(game, _shutdown.Token)));
+        if (game.SyncEnabled) _ = Task.Run(() => RunAsync(e => e.PullCheckAsync(game, _shutdown.Token)));
         return game;
     }
 
@@ -332,7 +338,7 @@ public sealed class AgentService : IDisposable
 
             foreach (var id in changed)
             {
-                var game = Games.FirstOrDefault(g => g.Id == id);
+                var game = SyncedGames.FirstOrDefault(g => g.Id == id);
                 if (game is null) continue;
                 if (_state.GetGameState(id).LastSyncedVersionId == heads[id].VersionId) continue; // our own push
                 await RunAsync(e => e.PullCheckAsync(game, _shutdown.Token));
@@ -362,7 +368,7 @@ public sealed class AgentService : IDisposable
         if (Config.Paused) return;
         foreach (var id in _watchers.TakeSettled(TimeSpan.FromMinutes(Math.Max(1, Config.QuietMinutes))))
         {
-            var game = Games.FirstOrDefault(g => g.Id == id);
+            var game = SyncedGames.FirstOrDefault(g => g.Id == id);
             if (game is not null) await RunAsync(e => e.PushAsync(game, VersionTypes.Checkpoint, _shutdown.Token));
         }
     }
@@ -371,14 +377,15 @@ public sealed class AgentService : IDisposable
     {
         if (Config.Paused) return;
         if (_watchers.HasMissingRoots) RebuildWatchers(); // a save folder may have appeared
-        foreach (var game in Games) await RunAsync(e => e.PushAsync(game, VersionTypes.Checkpoint, _shutdown.Token));
+        foreach (var game in SyncedGames) await RunAsync(e => e.PushAsync(game, VersionTypes.Checkpoint, _shutdown.Token));
     }
 
     private async Task FlushPendingAsync()
     {
         var engine = _engine;
         if (engine is null || Config.Paused || !engine.HasPendingOps) return;
-        var flushed = await engine.FlushPendingAsync(Games, _shutdown.Token);
+        // Queued uploads for games no longer synced here are dropped.
+        var flushed = await engine.FlushPendingAsync(SyncedGames, _shutdown.Token);
         if (flushed > 0)
         {
             MarkOnline();
@@ -390,9 +397,13 @@ public sealed class AgentService : IDisposable
 
     // ================================================================== user actions
 
-    public Task<SyncResult> BackUpNowAsync(Game game) => RunAsync(e => e.PushAsync(game, VersionTypes.Manual, _shutdown.Token));
+    public Task<SyncResult> BackUpNowAsync(Game game) => game.SyncEnabled
+        ? RunAsync(e => e.PushAsync(game, VersionTypes.Manual, _shutdown.Token))
+        : Task.FromResult(NotSyncedHere(game));
 
-    public Task<SyncResult> RestoreLatestAsync(Game game) => RunAsync(e => e.RestoreLatestAsync(game, _shutdown.Token));
+    public Task<SyncResult> RestoreLatestAsync(Game game) => game.SyncEnabled
+        ? RunAsync(e => e.RestoreLatestAsync(game, _shutdown.Token))
+        : Task.FromResult(NotSyncedHere(game));
 
     public Task<SyncResult> ResolveConflictAsync(Game game, ConflictChoice choice) =>
         RunAsync(e => e.ResolveConflictAsync(game, choice, _shutdown.Token));
@@ -402,6 +413,7 @@ public sealed class AgentService : IDisposable
     {
         var game = Games.FirstOrDefault(g => g.Id == gameId);
         if (game is null) return SyncResult.Of(SyncOutcome.Failed, "Unknown game");
+        if (!game.SyncEnabled) return NotSyncedHere(game);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         cts.CancelAfter(TimeSpan.FromSeconds(Math.Max(5, Config.PullTimeoutSeconds)));
         try
@@ -417,9 +429,24 @@ public sealed class AgentService : IDisposable
     public Task<SyncResult> PushAsync(string gameId, string type)
     {
         var game = Games.FirstOrDefault(g => g.Id == gameId);
-        return game is null
-            ? Task.FromResult(SyncResult.Of(SyncOutcome.Failed, "Unknown game"))
-            : RunAsync(e => e.PushAsync(game, type, _shutdown.Token));
+        if (game is null) return Task.FromResult(SyncResult.Of(SyncOutcome.Failed, "Unknown game"));
+        if (!game.SyncEnabled) return Task.FromResult(NotSyncedHere(game));
+        return RunAsync(e => e.PushAsync(game, type, _shutdown.Token));
+    }
+
+    private static SyncResult NotSyncedHere(Game game) =>
+        SyncResult.Of(SyncOutcome.NoChange, $"{game.Name} isn't set to sync on this PC");
+
+    /// <summary>Turn syncing a game on or off for this PC. Turning it on runs a pull check,
+    /// so the latest save arrives (or local saves are uploaded) straight away.</summary>
+    public async Task SetSyncEnabledAsync(Game game, bool enabled)
+    {
+        var api = _api ?? throw new InvalidOperationException("Not connected");
+        await api.SetSyncEnabledAsync(game.Id, enabled);
+        await RefreshGamesAsync(force: true);
+        var updated = Games.FirstOrDefault(g => g.Id == game.Id);
+        if (enabled && updated is not null && updated.SyncEnabled)
+            _ = Task.Run(() => RunAsync(e => e.PullCheckAsync(updated, _shutdown.Token)));
     }
 
     private async Task<SyncResult> RunAsync(Func<SyncEngine, Task<SyncResult>> op)

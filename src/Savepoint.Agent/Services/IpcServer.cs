@@ -172,6 +172,7 @@ public sealed class IpcServer : IDisposable
                         ["name"] = g.Name,
                         ["exe_names"] = new JsonArray(g.ExeNames.Select(e => (JsonNode?)e).ToArray()),
                         ["sync_mode"] = g.SyncMode,
+                        ["sync_enabled"] = g.SyncEnabled,
                     });
                     return new JsonObject { ["ok"] = true, ["games"] = new JsonArray(games.Cast<JsonNode?>().ToArray()) };
                 }
