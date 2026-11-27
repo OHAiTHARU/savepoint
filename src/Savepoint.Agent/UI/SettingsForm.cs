@@ -13,6 +13,7 @@ public sealed class SettingsForm : Form
     private readonly Button _test = new() { Text = "Test connection", AutoSize = true };
     private readonly Label _testResult = new() { AutoSize = true, MaximumSize = new Size(420, 0) };
     private readonly CheckBox _startup = new() { Text = "Start with Windows", AutoSize = true };
+    private readonly CheckBox _updates = new() { Text = "Check for updates automatically", AutoSize = true };
     private readonly NumericUpDown _quiet = new() { Minimum = 1, Maximum = 120, Width = 70 };
     private readonly NumericUpDown _poll = new() { Minimum = 15, Maximum = 3600, Increment = 15, Width = 70 };
     private readonly NumericUpDown _pullTimeout = new() { Minimum = 5, Maximum = 600, Width = 70 };
@@ -34,6 +35,7 @@ public sealed class SettingsForm : Form
         _url.Text = config.ServerUrl;
         _key.Text = config.ApiKey;
         _startup.Checked = config.StartWithWindows;
+        _updates.Checked = config.CheckForUpdates;
         _quiet.Value = Math.Clamp(config.QuietMinutes, 1, 120);
         _poll.Value = Math.Clamp(config.PollSeconds, 15, 3600);
         _pullTimeout.Value = Math.Clamp(config.PullTimeoutSeconds, 5, 600);
@@ -54,6 +56,7 @@ public sealed class SettingsForm : Form
         Row("", Hint("Create a key for this PC on the server's Machines page."));
         Row("", Flow(_test, _testResult));
         Row("", _startup);
+        Row("", _updates);
         Row("Back up after", Flow(_quiet, Hint("minutes without save changes (checkpoint)")));
         Row("Check server every", Flow(_poll, Hint("seconds")));
         Row("Playnite pull timeout", Flow(_pullTimeout, Hint("seconds")));
@@ -113,6 +116,7 @@ public sealed class SettingsForm : Form
             MachineId = _original.MachineId,
             MachineName = _original.MachineName,
             StartWithWindows = _startup.Checked,
+            CheckForUpdates = _updates.Checked,
             QuietMinutes = (int)_quiet.Value,
             PollSeconds = (int)_poll.Value,
             RescanMinutes = _original.RescanMinutes,

@@ -57,6 +57,17 @@ All under `%LOCALAPPDATA%\Savepoint\`:
 | `snapshots\<game>\*.zip` | Pre-restore zips |
 | `logs\agent-YYYYMMDD.log` | Logs, kept 14 days |
 
+## Updates
+
+The app checks GitHub for a newer release a minute after it starts, then once a day. You can also use **Check for updates** in the tray menu, and turn the automatic check off in Settings. When there's a newer version:
+- A toast offers **Update now**, and the tray menu shows **Update to vX.Y.Z…**.
+- Updating downloads the new `Savepoint.exe` and verifies it against the SHA-256 checksum GitHub publishes for the release file. It then swaps it in place of the running exe and restarts, which takes a few seconds.
+- If Savepoint sits in a folder it can't write to (e.g. Program Files), it opens the release page instead.
+
+The check only reads `api.github.com/repos/OHAiTHARU/savepoint/releases/latest`; nothing about your machine or games is sent. Pre-releases are ignored.
+
+The Playnite extension updates separately, by installing the newer `.pext` from the release.
+
 ## Playnite extension
 
 1. Download `Savepoint.Playnite.pext` from the same release and open it. Playnite asks to install it.

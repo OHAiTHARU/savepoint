@@ -11,6 +11,8 @@ public sealed class TrayContext : ApplicationContext
 {
     private readonly AgentService _agent;
     private readonly IpcServer _ipc;
+    private readonly UpdateService _updates;
+    private bool _updating;
     private readonly ILogger _log;
     private readonly NotifyIcon _tray;
     private readonly ContextMenuStrip _menu = new();
@@ -18,10 +20,12 @@ public sealed class TrayContext : ApplicationContext
     private readonly Control _ui = new(); // marshals background events onto the UI thread
     private Form? _openDialog;
 
-    public TrayContext(AgentService agent, IpcServer ipc, ILogger log, bool startedWithWindows)
+    public TrayContext(AgentService agent, IpcServer ipc, UpdateService updates, ILogger log,
+        bool startedWithWindows, bool justUpdated)
     {
         _agent = agent;
         _ipc = ipc;
+        _updates = updates;
         _log = log;
         _ = _ui.Handle; // create the window now so InvokeRequired/BeginInvoke work from any thread
 
@@ -44,6 +48,10 @@ public sealed class TrayContext : ApplicationContext
 
         _agent.StatusChanged += (_, _) => OnUi(UpdateStatus);
         _agent.Notification += (_, n) => OnUi(() => _notifier.Show(n));
+        _updates.UpdateFound += (_, u) => OnUi(() => _notifier.ShowUpdate(u, _updates.CurrentVersion));
+        _updates.Start();
+        if (justUpdated)
+            _tray.ShowBalloonTip(4000, "Savepoint", $"Updated to {_updates.CurrentVersion}.", ToolTipIcon.Info);
 
         UpdateStatus();
         _ = StartAsync(startedWithWindows);
@@ -87,6 +95,7 @@ public sealed class TrayContext : ApplicationContext
     private void BuildMenu()
     {
         _menu.Items.Clear();
+        _menu.Items.Add(new ToolStripMenuItem($"Savepoint {_updates.CurrentVersion}") { Enabled = false });
         var status = new ToolStripMenuItem(_agent.StatusText) { Enabled = false };
         _menu.Items.Add(status);
         if (_agent.MachineName is not null)
@@ -150,6 +159,20 @@ public sealed class TrayContext : ApplicationContext
         pause.Click += (_, _) => _agent.SetPaused(pause.Checked);
         _menu.Items.Add(pause);
         _menu.Items.Add("Open log folder", null, (_, _) => OpenPath(_agent.LogDirectory));
+        var available = _updates.Available;
+        if (available is not null)
+        {
+            var upd = new ToolStripMenuItem($"Update to {available.Version}…", null, (_, _) => _ = InstallUpdateAsync(available))
+            {
+                Font = new Font(_menu.Font, FontStyle.Bold),
+                Enabled = !_updating,
+            };
+            _menu.Items.Add(upd);
+        }
+        else
+        {
+            _menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => _ = CheckForUpdatesAsync()) { Enabled = !_updating });
+        }
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add("Quit", null, (_, _) => Quit());
     }
@@ -198,6 +221,9 @@ public sealed class TrayContext : ApplicationContext
         var game = _agent.Games.FirstOrDefault(g => g.Id == gameId);
         switch (action)
         {
+            case ToastAction.InstallUpdate when _updates.Available is not null:
+                await InstallUpdateAsync(_updates.Available);
+                break;
             case ToastAction.OpenWeb:
                 OpenWeb(string.IsNullOrEmpty(gameId) ? null : gameId);
                 break;
@@ -273,6 +299,67 @@ public sealed class TrayContext : ApplicationContext
             _log.LogWarning(ex, "Couldn't open {Target}", target);
         }
     }
+
+    // ================================================================== updates
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var update = await _updates.CheckAsync();
+            if (update is null)
+            {
+                MessageBox.Show($"You're up to date (Savepoint {_updates.CurrentVersion}).", "Savepoint",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            await InstallUpdateAsync(update);
+        }
+        catch (Savepoint.Core.Updates.UpdateException ex)
+        {
+            MessageBox.Show(ex.Message, "Savepoint", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private async Task InstallUpdateAsync(Savepoint.Core.Updates.UpdateInfo update)
+    {
+        if (_updating) return;
+        var notes = string.IsNullOrWhiteSpace(update.Notes) ? "" : "\n\n" + Truncate(update.Notes.Trim(), 600);
+        if (!UpdateService.CanSelfUpdate)
+        {
+            var open = MessageBox.Show(
+                $"Savepoint {update.Version} is available (you have {_updates.CurrentVersion}).\n\n" +
+                "Savepoint can't replace itself in its current folder, so download it from the release page instead?" + notes,
+                "Savepoint update", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+            if (open == DialogResult.OK) OpenPath(update.ReleaseUrl);
+            return;
+        }
+        var answer = MessageBox.Show(
+            $"Update Savepoint from {_updates.CurrentVersion} to {update.Version}?\n\n" +
+            "It downloads the new version, checks it, and restarts. Syncing pauses for a few seconds." + notes,
+            "Savepoint update", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (answer != DialogResult.OK) return;
+
+        _updating = true;
+        try
+        {
+            _tray.ShowBalloonTip(3000, "Savepoint", $"Downloading Savepoint {update.Version}…", ToolTipIcon.Info);
+            var file = await _updates.DownloadAsync(update);
+            // Let a running sync finish rather than cutting it off mid-restore.
+            for (var i = 0; i < 120 && _agent.Status == AgentStatus.Syncing; i++) await Task.Delay(500);
+            _updates.ApplyAndRestart(file);
+            Quit();
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Update failed");
+            _updating = false;
+            MessageBox.Show($"The update didn't install: {ex.Message}\n\nSavepoint {_updates.CurrentVersion} keeps running.",
+                "Savepoint update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 
     private void Quit()
     {

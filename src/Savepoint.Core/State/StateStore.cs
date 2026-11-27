@@ -20,6 +20,8 @@ public sealed class AgentConfig
     /// <summary>How long a blocking pull (Playnite pre-launch) may take.</summary>
     public int PullTimeoutSeconds { get; set; } = 30;
     public bool Paused { get; set; }
+    /// <summary>Check GitHub for a newer Savepoint at startup and daily.</summary>
+    public bool CheckForUpdates { get; set; } = true;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ServerUrl) && !string.IsNullOrWhiteSpace(ApiKey);
 }

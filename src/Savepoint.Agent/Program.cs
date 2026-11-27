@@ -12,6 +12,12 @@ internal static class Program
     private static int Main(string[] args)
     {
         using var mutex = new Mutex(true, @"Local\Savepoint.Agent", out var first);
+        if (!first && args.Contains(UpdateService.AfterUpdateArg, StringComparer.OrdinalIgnoreCase))
+        {
+            // Started by the previous version while it shuts down: wait for it to exit.
+            try { first = mutex.WaitOne(TimeSpan.FromSeconds(30)); }
+            catch (AbandonedMutexException) { first = true; }
+        }
         if (!first)
         {
             MessageBox.Show("Savepoint is already running. Look for its icon in the system tray.", "Savepoint",
@@ -40,8 +46,11 @@ internal static class Program
         using var state = new StateStore(Path.Combine(dataDir, "state.db"), SecretProtectors.ForPlatform());
         using var agent = new AgentService(state, loggerFactory, dataDir);
         using var ipc = new IpcServer(agent, loggerFactory.CreateLogger("Ipc"));
+        using var updates = new UpdateService(loggerFactory.CreateLogger("Updates"), dataDir, () => agent.Config.CheckForUpdates);
+        updates.CleanUpAfterUpdate();
         var startedWithWindows = args.Contains("--startup", StringComparer.OrdinalIgnoreCase);
-        Application.Run(new TrayContext(agent, ipc, loggerFactory.CreateLogger("Tray"), startedWithWindows));
+        var justUpdated = args.Contains(UpdateService.AfterUpdateArg, StringComparer.OrdinalIgnoreCase);
+        Application.Run(new TrayContext(agent, ipc, updates, loggerFactory.CreateLogger("Tray"), startedWithWindows, justUpdated));
         log.LogInformation("Savepoint exiting");
         return 0;
     }

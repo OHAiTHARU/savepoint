@@ -4,7 +4,7 @@ using Savepoint.Core.Sync;
 
 namespace Savepoint.Agent.UI;
 
-public enum ToastAction { RestoreNow, KeepLocal, TakeServer, OpenWeb }
+public enum ToastAction { RestoreNow, KeepLocal, TakeServer, OpenWeb, InstallUpdate }
 
 /// <summary>Windows toasts with action buttons, falling back to tray balloons if toasts
 /// aren't available.</summary>
@@ -39,6 +39,29 @@ public sealed class Notifier
 
     /// <summary>A toast button was clicked. Raised on a background thread.</summary>
     public event EventHandler<(ToastAction Action, string GameId)>? Activated;
+
+    public void ShowUpdate(Savepoint.Core.Updates.UpdateInfo update, Version current)
+    {
+        var title = $"Savepoint {update.Version} is available";
+        var text = $"You have {current}. Updating restarts Savepoint; it takes a few seconds.";
+        if (!_toastsBroken)
+        {
+            try
+            {
+                new ToastContentBuilder().AddText(title).AddText(text)
+                    .AddButton(Button("Update now", ToastAction.InstallUpdate, ""))
+                    .AddButton(new ToastButtonDismiss("Later"))
+                    .Show();
+                return;
+            }
+            catch (Exception ex)
+            {
+                _toastsBroken = true;
+                _log.LogWarning(ex, "Toast failed; falling back to balloons");
+            }
+        }
+        _tray.ShowBalloonTip(8000, title, text + " Use the tray menu to update.", ToolTipIcon.Info);
+    }
 
     public void Show(SyncNotification n)
     {
